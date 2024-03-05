@@ -1,0 +1,309 @@
+diff --git a/src/main/java/com/flansmod/common/FlansMod.java b/src/main/java/com/flansmod/common/FlansMod.java
+index 93179288..b96b296a 100644
+--- a/src/main/java/com/flansmod/common/FlansMod.java
++++ b/src/main/java/com/flansmod/common/FlansMod.java
+@@ -140,7 +140,7 @@ import com.flansmod.common.types.EnumType;
+ import com.flansmod.common.types.InfoType;
+ import com.flansmod.common.types.TypeFile;
+ 
+-@Mod(modid = FlansMod.MODID, name = "Flan's Mod", version = FlansMod.VERSION, acceptableRemoteVersions = "@ALLOWED_VERSIONS@", guiFactory = "com.flansmod.client.gui.config.ModGuiFactory")
++@Mod(modid = FlansMod.MODID, name = "Flan's Mod KL patch", version = FlansMod.VERSION, acceptableRemoteVersions = "@ALLOWED_VERSIONS@", guiFactory = "com.flansmod.client.gui.config.ModGuiFactory")
+ public class FlansMod
+ {
+ 	//Core mod stuff
+diff --git a/src/main/java/com/flansmod/common/driveables/EntityDriveable.java b/src/main/java/com/flansmod/common/driveables/EntityDriveable.java
+index bb376778..82ec7256 100644
+--- a/src/main/java/com/flansmod/common/driveables/EntityDriveable.java
++++ b/src/main/java/com/flansmod/common/driveables/EntityDriveable.java
+@@ -79,7 +79,9 @@ public abstract class EntityDriveable extends Entity implements IControllable, I
+ 	public double serverPosX, serverPosY, serverPosZ;
+ 	/** Server side rotation, as synced by PacketVehicleControl packets */
+ 	public double serverYaw, serverPitch, serverRoll;
+-	
++
++	private double lastStablePosX = 0, lastStablePosY = 100, lastStablePosZ = 0;
++	public int nanRecoveryAttempt = 0;
+ 	/** The driveable data which contains the inventory, the engine and the fuel */
+ 	public DriveableData driveableData;
+ 	/** The shortName of the driveable type, used to obtain said type */
+@@ -192,7 +194,16 @@ public abstract class EntityDriveable extends Entity implements IControllable, I
+ 			emitterTimers[i] = rand.nextInt(type.emitters.get(i).emitRate);
+ 		}
+ 	}
+-	
++	public boolean canUpgradeEngine()
++	{
++		return (motionX<1)&&(motionY<1)&&(motionZ<1)&&(fuelling==false);
++	}
++        public PartType replaceEngine(PartType engine)
++        {
++                PartType buf = driveableData.engine;
++                driveableData.engine = engine;
++                return buf;
++        }
+ 	@SideOnly(Side.CLIENT)
+ 	@Override
+ 	public boolean isInRangeToRender3d(double x, double y, double z)
+@@ -1225,24 +1236,59 @@ public abstract class EntityDriveable extends Entity implements IControllable, I
+ 			}
+ 		}
+ 	}
+-	
+-	public void PostUpdate()
++// Applied patch from Flan's mod Orion Rework
++// https://github.com/Lithius0/FlansModOrionRework/commit/b586d325508f3625352fcada6e8770d43758939f
++        public void PostUpdate()
+ 	{
+-		if(Double.isNaN(posX) 
+-		|| Double.isNaN(posY)
+-		|| Double.isNaN(posZ)
+-		|| Float.isNaN(rotationYaw)
+-		|| Float.isNaN(rotationPitch)
+-		|| !axes.isValid())
++		//Checking validity of position
++		//NaN or infinite values will be picked up and dealt with
++		if(!Double.isFinite(posX) || !Double.isFinite(posY) || !Double.isFinite(posZ))
+ 		{
+-			FlansMod.log.error("Driveable went to NaNsville. Reverting one frame");
+-			posX = prevPosX;
+-			posY = prevPosY;
+-			posZ = prevPosZ;
+-			
+-			// Just reset the axes
+-			axes = new RotatedAxes();
+-			prevAxes = new RotatedAxes();
++			if (nanRecoveryAttempt < 5)
++			{
++				FlansMod.log.error("Driveable: " + this.driveableType + " position is invalid! Attempting to revert to previous frame");
++
++				//Resetting velocity. If velocity was NaN, the next position would be NaN, too.
++				motionX = 0;
++				motionY = 0;
++				motionZ = 0;
++				
++				//Also reset the rotation axis, in case that was causing issues.
++				this.axes = new RotatedAxes();
++				
++				if (Double.isFinite(prevPosX) && Double.isFinite(prevPosY) && Double.isFinite(prevPosZ))
++				{
++					posX = prevPosX;
++					posY = prevPosY;
++					posZ = prevPosZ;
++				}
++				else
++				{
++					posX = lastStablePosX;
++					posY = lastStablePosY;
++					posZ = lastStablePosZ;
++					
++					prevPosX = lastStablePosX;
++					prevPosY = lastStablePosY;
++					prevPosZ = lastStablePosZ;
++				}
++				
++				nanRecoveryAttempt++;
++			}
++			else
++			{
++				//TODO: Dump a list of the cargo within the driveable
++				FlansMod.log.error("Too many attempts to recover driveable! Deleting driveable");
++				
++				this.setDead();
++			}
++		} 
++		else 
++		{
++			nanRecoveryAttempt = 0;
++			lastStablePosX = posX;
++			lastStablePosY = posY;
++			lastStablePosZ = posZ;
+ 		}
+ 	}
+ 	
+diff --git a/src/main/java/com/flansmod/common/guns/boxes/BlockGunBox.java b/src/main/java/com/flansmod/common/guns/boxes/BlockGunBox.java
+index 641ed55a..c21e7d23 100644
+--- a/src/main/java/com/flansmod/common/guns/boxes/BlockGunBox.java
++++ b/src/main/java/com/flansmod/common/guns/boxes/BlockGunBox.java
+@@ -51,7 +51,7 @@ public class BlockGunBox extends Block
+ 				for(int j = 0; j < inventory.getSizeInventory(); j++)
+ 				{
+ 					ItemStack stack = inventory.getStackInSlot(j);
+-					if(stack != null && !stack.isEmpty() && stack.getItem() == check.getItem() && stack.getItemDamage() == check.getItemDamage())
++					if(stack != null && !stack.isEmpty() && (stack.getItem() == check.getItem()||entry.hasLogNeeded(stack,check)) && stack.getItemDamage() == check.getItemDamage())
+ 					{
+ 						numMatchingStuff += stack.getCount();
+ 					}
+@@ -69,7 +69,7 @@ public class BlockGunBox extends Block
+ 					for(int j = 0; j < inventory.getSizeInventory(); j++)
+ 					{
+ 						ItemStack stack = inventory.getStackInSlot(j);
+-						if(amountLeft > 0 && stack != null && !stack.isEmpty() && stack.getItem() == remove.getItem() && stack.getItemDamage() == remove.getItemDamage())
++						if(amountLeft > 0 && stack != null && !stack.isEmpty() && (stack.getItem() == remove.getItem()||entry.hasLogNeeded(stack,remove)) && stack.getItemDamage() == remove.getItemDamage())
+ 						{
+ 							amountLeft -= inventory.decrStackSize(j, amountLeft).getCount();
+ 						}
+diff --git a/src/main/java/com/flansmod/common/guns/boxes/GunBoxType.java b/src/main/java/com/flansmod/common/guns/boxes/GunBoxType.java
+index 5dd97200..2804af70 100644
+--- a/src/main/java/com/flansmod/common/guns/boxes/GunBoxType.java
++++ b/src/main/java/com/flansmod/common/guns/boxes/GunBoxType.java
+@@ -4,6 +4,7 @@ import java.util.ArrayList;
+ import java.util.HashMap;
+ import java.util.List;
+ 
++import net.minecraft.init.Blocks;
+ import net.minecraft.block.Block;
+ import net.minecraft.entity.player.InventoryPlayer;
+ import net.minecraft.item.Item;
+@@ -314,7 +315,10 @@ public class GunBoxType extends BoxType
+ 			
+ 			return haveEnoughOf(temporaryInventory, stackNeeded, false);
+ 		}
+-		
++		public boolean hasLogNeeded(ItemStack stackInSlot,ItemStack stackNeeded)
++		{
++			return stackNeeded.getItem()==Item.getItemFromBlock(Blocks.LOG)&&(stackInSlot.getItem()==Item.getItemFromBlock(Blocks.LOG2)||(stackInSlot.getItem()==Item.getItemFromBlock(Blocks.LOG)));
++		}
+ 		private boolean haveEnoughOf(InventoryPlayer temporaryInventory, ItemStack stackNeeded, boolean takeItems)
+ 		{
+ 			//The total amount of items found that match this recipe stack
+@@ -325,7 +329,7 @@ public class GunBoxType extends BoxType
+ 				//Get the stack in each slot
+ 				ItemStack stackInSlot = temporaryInventory.getStackInSlot(m).copy();
+ 				//If the stack is what we want
+-				if(stackInSlot.getItem() == stackNeeded.getItem() && stackInSlot.getItemDamage() == stackNeeded.getItemDamage())
++				if((stackInSlot.getItem() == stackNeeded.getItem()||hasLogNeeded(stackInSlot,stackNeeded)) && stackInSlot.getItemDamage() == stackNeeded.getItemDamage())
+ 				{
+ 					//Work out the amount to take from the stack
+ 					int amountFound = Math.min(stackInSlot.getCount(), stackNeeded.getCount() - totalAmountFound);
+diff --git a/src/main/java/com/flansmod/common/parts/ItemPart.java b/src/main/java/com/flansmod/common/parts/ItemPart.java
+index eeefa0dd..48cc9ae5 100644
+--- a/src/main/java/com/flansmod/common/parts/ItemPart.java
++++ b/src/main/java/com/flansmod/common/parts/ItemPart.java
+@@ -6,10 +6,24 @@ import net.minecraft.client.util.ITooltipFlag;
+ import net.minecraft.item.Item;
+ import net.minecraft.item.ItemStack;
+ import net.minecraft.world.World;
++import net.minecraft.util.ActionResult;
++import net.minecraft.util.EnumActionResult;
+ 
+ import com.flansmod.common.FlansMod;
+ import com.flansmod.common.types.IFlanItem;
+ import com.flansmod.common.types.InfoType;
++import com.flansmod.common.driveables.EntityDriveable;
++import com.flansmod.common.driveables.EnumDriveablePart;
++import com.flansmod.common.driveables.DriveablePart;
++
++import net.minecraft.util.math.AxisAlignedBB;
++import net.minecraft.util.math.MathHelper;
++import net.minecraft.util.math.Vec3d;
++import com.flansmod.common.vector.Vector3f;
++
++import net.minecraft.util.EnumHand;
++import net.minecraft.entity.player.EntityPlayer;
++import com.flansmod.client.debug.EntityDebugVector;
+ 
+ public class ItemPart extends Item implements IFlanItem
+ {
+@@ -30,7 +44,61 @@ public class ItemPart extends Item implements IFlanItem
+ 		setRegistryName(type.shortName);
+ 		setCreativeTab(FlansMod.tabFlanParts);
+ 	}
+-	
++	public static ItemPart getFromRegistry(PartType type)
++	{
++		for(ItemPart p:FlansMod.partItems)
++		{
++			if(p.type==type)return p;
++		}
++		return null;
++	}
++	@Override
++	public ActionResult<ItemStack> onItemRightClick(World world, EntityPlayer entityplayer, EnumHand hand)
++	{
++		ItemStack itemstack = entityplayer.getHeldItem(hand);
++		if(type.category == EnumPartCategory.ENGINE)
++		{
++			//Raytracing
++			float cosYaw = MathHelper.cos(-entityplayer.rotationYaw * 0.01745329F);
++			float sinYaw = MathHelper.sin(-entityplayer.rotationYaw * 0.01745329F);
++			float cosPitch = -MathHelper.cos(entityplayer.rotationPitch * 0.01745329F);
++			float sinPitch = MathHelper.sin(entityplayer.rotationPitch * 0.01745329F);
++			double length = 5D;
++			Vec3d posVec = new Vec3d(entityplayer.posX, entityplayer.posY + 1.62D - entityplayer.getYOffset(), entityplayer.posZ);
++			Vec3d lookVec = posVec.add(sinYaw * cosPitch * length, sinPitch * length, cosYaw * cosPitch * length);
++			
++			if(world.isRemote && FlansMod.DEBUG)
++			{
++				world.spawnEntity(new EntityDebugVector(world, new Vector3f(posVec), new Vector3f(posVec.subtract(lookVec)), 100));
++			}
++			
++			//Iterate over all EntityDriveables
++			for(int i = 0; i < world.loadedEntityList.size(); i++)
++			{
++				Object obj = world.loadedEntityList.get(i);
++				if(obj instanceof EntityDriveable)
++				{
++					EntityDriveable driveable = (EntityDriveable)obj;
++					//Raytrace
++					DriveablePart part = driveable.raytraceParts(new Vector3f(posVec), Vector3f.sub(new Vector3f(lookVec), new Vector3f(posVec), null));
++					//If we hit something that is an engine
++					if(part != null&&part.type==EnumDriveablePart.core&&driveable.canUpgradeEngine())
++					{
++						itemstack.setCount(itemstack.getCount() - 1);
++						PartType oldengine = driveable.replaceEngine(type);
++						ItemPart oldpart = getFromRegistry(oldengine); // drop old engine
++						if(oldpart!=null)
++						{
++							ItemStack oldstack = new ItemStack(oldpart,1);
++							entityplayer.dropItem(oldstack,false);
++							return new ActionResult<>(EnumActionResult.SUCCESS, itemstack);
++						}
++					}
++				}
++			}
++		}
++		return new ActionResult<>(EnumActionResult.FAIL, itemstack);
++	}
+ 	@Override
+ 	public void addInformation(ItemStack stack, World world, List<String> lines, ITooltipFlag b)
+ 	{
+diff --git a/src/main/java/com/flansmod/common/types/InfoType.java b/src/main/java/com/flansmod/common/types/InfoType.java
+index d482b984..77932f8b 100644
+--- a/src/main/java/com/flansmod/common/types/InfoType.java
++++ b/src/main/java/com/flansmod/common/types/InfoType.java
+@@ -35,6 +35,7 @@ import net.minecraftforge.registries.IForgeRegistry;
+ 
+ import com.flansmod.common.FlansMod;
+ import com.flansmod.common.driveables.DriveableType;
++import net.minecraftforge.fml.common.Loader;
+ 
+ public class InfoType
+ {
+@@ -741,8 +742,11 @@ public class InfoType
+ 		AddOreDictEntry("ingotBronze", Ingredient.fromItem(Items.GOLD_INGOT));
+ 		AddOreDictEntry("blockBronze", Ingredient.fromItems(Item.getItemFromBlock(Blocks.GOLD_BLOCK)));
+ 
++                AddModEntry("highexgunpowder", "flansmod:gunpowderblock", Ingredient.fromItems(Items.BLAZE_POWDER));
++
+ 		// IE lookups
+-		AddModEntry("treatedPlanks", "immersiveengineering:treated_wood",  Ingredient.fromItems(Item.getItemFromBlock(Blocks.PLANKS)));
++		if(Loader.isModLoaded("immersiveengineering"))AddModEntry("treatedPlanks", "immersiveengineering:treated_wood",  Ingredient.fromItems(Item.getItemFromBlock(Blocks.PLANKS)));
++                else AddModEntry("treatedPlanks","minecraft:chest",Ingredient.fromItems(Item.getItemFromBlock(Blocks.CHEST)));
+ 	}
+ 	
+ 	private static void AddModEntry(String name, String resLoc, Ingredient fallback)
+diff --git a/src/main/resources/mcmod.info b/src/main/resources/mcmod.info
+index fb7807b9..ec815710 100644
+--- a/src/main/resources/mcmod.info
++++ b/src/main/resources/mcmod.info
+@@ -2,8 +2,8 @@
+   "modListVersion": 2,
+   "modList": [
+     {
+-      "modid": "flansmod",
+-      "name": "Flan's Mod",
++      "modid": "kl.flansmod",
++      "name": "Flan's Mod Still Alive",
+       "description": "Guns, planes and other vehicles in Minecraft.",
+       "version": "${version}",
+       "mcversion": "${mcversion}",
