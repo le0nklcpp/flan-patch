@@ -17,4 +17,4 @@ Flan's mod 1.12 patches containing minor improvements. Current list of imrpoveme
 
 # License
 
-The patch file code is based on the original project source code, and therefore is distributed under the same license as the Flan's Mod. See LICENSE.txt for details
+The patch file code is based on the source code of the original project, and therefore is distributed under the same license as the Flan's Mod. See LICENSE.txt for details
