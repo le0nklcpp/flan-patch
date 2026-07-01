@@ -14,3 +14,7 @@ Flan's mod 1.12 patches containing minor improvements. Current list of imrpoveme
 - Download the [flan.patch](https://github.com/le0nklcpp/flan-patch/raw/refs/heads/main/flan.patch) from this repository
 - Run `git apply flan.patch` from Flan's mod directory
 - Build the mod using the standard build instructions
+
+# License
+
+The patch file code is based on the original project source code, and therefore is distributed under the same license as the Flan's Mod. See LICENSE.txt for details
