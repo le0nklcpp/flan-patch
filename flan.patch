@@ -1,3 +1,22 @@
+diff --git a/run/Flan/Modern Weapons Pack/aaguns/Sentry.txt b/run/Flan/Modern Weapons Pack/aaguns/Sentry.txt
+index 14e88876..36cffeeb 100644
+--- a/run/Flan/Modern Weapons Pack/aaguns/Sentry.txt	
++++ b/run/Flan/Modern Weapons Pack/aaguns/Sentry.txt	
+@@ -8,10 +8,10 @@ Model mw.SentryGun
+ //Place the texture .png in the skins folder
+ Texture SentryGun
+ NumBarrels 4
+-Barrel 0 40 6 6
+-Barrel 1 40 6 6
+-Barrel 2 40 6 6
+-Barrel 3 40 6 6
++Barrel 0 40 28 16
++Barrel 1 40 28 16
++Barrel 2 40 28 16
++Barrel 3 40 28 16
+ FireAlternately False
+ //Reload time in ticks, 1/20ths of a second
+ ReloadTime 100
 diff --git a/src/main/java/com/flansmod/common/FlansMod.java b/src/main/java/com/flansmod/common/FlansMod.java
 index 93179288..b96b296a 100644
 --- a/src/main/java/com/flansmod/common/FlansMod.java
@@ -120,6 +139,419 @@ index bb376778..82ec7256 100644
  		}
  	}
  	
+diff --git a/src/main/java/com/flansmod/common/guns/EntityAAGun.java b/src/main/java/com/flansmod/common/guns/EntityAAGun.java
+old mode 100644
+new mode 100755
+index 030bc16e..4a036d98
+--- a/src/main/java/com/flansmod/common/guns/EntityAAGun.java
++++ b/src/main/java/com/flansmod/common/guns/EntityAAGun.java
+@@ -8,14 +8,19 @@ import net.minecraft.entity.MoverType;
+ import net.minecraft.entity.monster.EntityMob;
+ import net.minecraft.entity.player.EntityPlayer;
+ import net.minecraft.entity.player.EntityPlayerMP;
++import net.minecraft.entity.EntityLiving;
++import net.minecraft.entity.EntityLivingBase;
++import net.minecraft.entity.SharedMonsterAttributes;
+ import net.minecraft.item.ItemStack;
+ import net.minecraft.nbt.NBTTagCompound;
++import net.minecraft.potion.PotionEffect;
+ import net.minecraft.util.DamageSource;
+ import net.minecraft.util.EnumHand;
+ import net.minecraft.util.SoundCategory;
+ import net.minecraft.util.math.AxisAlignedBB;
+ import net.minecraft.util.math.RayTraceResult;
+ import net.minecraft.util.math.Vec3d;
++import net.minecraft.util.text.TextComponentString;
+ import net.minecraft.world.World;
+ import net.minecraftforge.fml.client.FMLClientHandler;
+ import net.minecraftforge.fml.common.network.ByteBufUtils;
+@@ -34,7 +39,7 @@ import com.flansmod.common.teams.Team;
+ import com.flansmod.common.teams.TeamsManager;
+ import com.flansmod.common.vector.Vector3f;
+ 
+-public class EntityAAGun extends Entity implements IEntityAdditionalSpawnData
++public class EntityAAGun extends EntityLiving implements IEntityAdditionalSpawnData
+ {
+ 	private int sUpdateTime;
+ 	private double sPosX;
+@@ -52,6 +57,11 @@ public class EntityAAGun extends Entity implements IEntityAdditionalSpawnData
+ 	 * Gun angles
+ 	 */
+ 	public float gunYaw, gunPitch;
++	private int gunTiltState;
++	public static final int GUN_TILT_UP=2;
++	public static final int GUN_TILT_GO_UP=1;
++	public static final int GUN_TILT_GO_DOWN=0;
++	public static final int GUN_TILT_DOWN=-1;
+ 	/**
+ 	 * Prev gun angles
+ 	 */
+@@ -64,7 +74,7 @@ public class EntityAAGun extends Entity implements IEntityAdditionalSpawnData
+ 	public int currentBarrel; // For cycling through firing each barrel
+ 	public boolean mouseHeld;
+ 	public boolean wasShooting;
+-	
++
+ 	//Sentry stuff
+ 	/**
+ 	 * Stops the sentry shooting whoever placed it or their teammates
+@@ -81,12 +91,30 @@ public class EntityAAGun extends Entity implements IEntityAdditionalSpawnData
+ 	/**
+ 	 * How often to check for new targets
+ 	 */
+-	public static final float targetAcquireInterval = 10;
++	public static final float targetAcquireInterval = 15;
+ 	
+ 	public int ticksSinceUsed = 0;
+ 	
+ 	private float yOffset;
++
++	private float targetUpdateTime = 0;
+ 	
++
++	public static final int AAGUN_TARGET_MOBS_AGGRESSIVE=1;
++	public static final int AAGUN_TARGET_MOBS_FRIENDLY=(1<<1);
++	public static final int AAGUN_TARGET_PLAYERS=(1<<2);
++	public static final int AAGUN_TARGET_VEHICLES=(1<<3);
++
++
++	public static final int AAGUN_MODE_DISABLED = 0,
++            //AAGUN_MODE_MOBS_ALL=(AAGUN_TARGET_MOBS_AGGRESSIVE|AAGUN_TARGET_MOBS_FRIENDLY),
++	    AAGUN_MODE_MOBS_BAD = (AAGUN_TARGET_MOBS_AGGRESSIVE),
++            AAGUN_MODE_PLAYERS = (AAGUN_TARGET_PLAYERS),
++            AAGUN_MODE_DEFENSE = (AAGUN_TARGET_PLAYERS|AAGUN_TARGET_VEHICLES|AAGUN_TARGET_MOBS_AGGRESSIVE),
++            AAGUN_MODE_ALL = (AAGUN_TARGET_MOBS_AGGRESSIVE|AAGUN_TARGET_MOBS_FRIENDLY|AAGUN_TARGET_PLAYERS|AAGUN_TARGET_VEHICLES);
++
++	public int sentryMode;
++
+ 	public EntityAAGun(World world)
+ 	{
+ 		super(world);
+@@ -96,6 +124,10 @@ public class EntityAAGun extends Entity implements IEntityAdditionalSpawnData
+ 		gunYaw = 0;
+ 		gunPitch = 0;
+ 		shootDelay = 0;
++		sentryMode = AAGUN_MODE_MOBS_BAD;
++		gunTiltState = GUN_TILT_GO_UP;
++		enablePersistence();
++	        setNoAI(true);	
+ 	}
+ 	
+ 	public EntityAAGun(World world, AAGunType type1, double d, double d1, double d2, EntityPlayer p)
+@@ -107,7 +139,15 @@ public class EntityAAGun extends Entity implements IEntityAdditionalSpawnData
+ 		initType();
+ 		setPosition(d, d1, d2);
+ 	}
+-	
++
++
++        @Override
++        protected void applyEntityAttributes() {
++                super.applyEntityAttributes();
++                this.getEntityAttribute(SharedMonsterAttributes.MAX_HEALTH).setBaseValue(20.0D);
++                this.getEntityAttribute(SharedMonsterAttributes.MOVEMENT_SPEED).setBaseValue(0.0D);
++        }
++
+ 	@Override
+ 	public void setPosition(double d, double d1, double d2)
+ 	{
+@@ -144,6 +184,7 @@ public class EntityAAGun extends Entity implements IEntityAdditionalSpawnData
+ 	@Override
+ 	protected void entityInit()
+ 	{
++            super.entityInit();
+ 	}
+ 	
+ 	@Override
+@@ -177,10 +218,46 @@ public class EntityAAGun extends Entity implements IEntityAdditionalSpawnData
+ 		return 0D;
+ 	}
+ 	
++        @Override
++        public boolean canBeLeashedTo(EntityPlayer player)
++        {
++                return false;
++        }
++
+ 	public void setMouseHeld(boolean held)
+ 	{
+ 		mouseHeld = held;
+ 	}
++
++	public void changeSentryMode(EntityPlayer entityplayer)
++	{
++		String msg = "";
++		switch(sentryMode)
++		{
++			case(AAGUN_MODE_DISABLED):{
++				sentryMode = AAGUN_MODE_MOBS_BAD;
++				msg = "Sentry is set to attack mobs";
++			}
++			break;
++			case(AAGUN_MODE_MOBS_BAD):{
++				sentryMode = AAGUN_MODE_PLAYERS;
++				msg = "Sentry is set to attack players";
++			}
++			break;
++			case(AAGUN_MODE_PLAYERS):{
++				sentryMode = AAGUN_MODE_DEFENSE;
++				msg = "Sentry is set to defensive mode";
++			}
++			break;
++			default:{
++				sentryMode = AAGUN_MODE_DISABLED;
++				msg = "Sentry is inactive";
++			}
++			break;
++		}
++		target = null;
++		entityplayer.sendMessage(new TextComponentString(msg));
++	}
+ 	
+ 	@Override
+ 	public boolean attackEntityFrom(DamageSource damagesource, float i)
+@@ -268,16 +345,28 @@ public class EntityAAGun extends Entity implements IEntityAdditionalSpawnData
+ 			if(target != null && target.isDead)
+ 				target = null;
+ 			//Find a new target if we don't currently have one
+-			if(target == null && ticksExisted % targetAcquireInterval == 0)
++			if(target == null && ticksExisted >= targetUpdateTime)
+ 			{
++				gunTiltState = GUN_TILT_GO_UP;
++
++				targetUpdateTime = ticksExisted + targetAcquireInterval;
+ 				target = getValidTarget();
+ 			}
+ 			if(target != null)
+ 			{
++				double barrelOffset = (currentBarrel < type.numBarrels) ? type.barrelY[currentBarrel] / 16D : 1.5D;
++
+ 				double dX = target.posX - posX;
+-				double dY = target.posY - (posY + 1.5F);
++				double dY = target.posY - (posY + barrelOffset);
+ 				double dZ = target.posZ - posZ;
+-				
++
++				switch(gunTiltState)
++				{
++					case(GUN_TILT_UP):dY += target.getEyeHeight(); break;
++					case(GUN_TILT_GO_UP):
++					case(GUN_TILT_GO_DOWN):dY += target.getEyeHeight()/2.0D;break;
++				}
++
+ 				double distanceToTarget = Math.sqrt(dX * dX + dY * dY + dZ * dZ);
+ 				
+ 				if(distanceToTarget > type.targetRange)
+@@ -286,7 +375,7 @@ public class EntityAAGun extends Entity implements IEntityAdditionalSpawnData
+ 				{
+ 					float newYaw = 180F + (float)Math.atan2(dZ, dX) * 180F / 3.14159F;
+ 					float newPitch = -(float)Math.atan2(dY, Math.sqrt(dX * dX + dZ * dZ)) * 180F / 3.14159F;
+-					
++
+ 					float turnSpeed = 0.25F;
+ 					
+ 					gunYaw += (newYaw - gunYaw) * turnSpeed;
+@@ -373,7 +462,6 @@ public class EntityAAGun extends Entity implements IEntityAdditionalSpawnData
+ 			if (target != null || shootPlayer)
+ 			{
+ 				EntityPlayerMP player = shootPlayer ? (EntityPlayerMP)getControllingPassenger() : null;
+-				
+ 				for(int j = 0; j < type.numBarrels; j++)
+ 				{
+ 					int ammoSlot = j;
+@@ -390,6 +478,14 @@ public class EntityAAGun extends Entity implements IEntityAdditionalSpawnData
+ 						} else
+ 						{
+ 							ammo[ammoSlot].setItemDamage(ammo[ammoSlot].getItemDamage() + 1);
++							switch(gunTiltState)
++							{
++								case(GUN_TILT_UP):gunTiltState = GUN_TILT_GO_DOWN; break;
++								case(GUN_TILT_GO_UP):gunTiltState = GUN_TILT_GO_DOWN;break;
++								case(GUN_TILT_GO_DOWN):gunTiltState = GUN_TILT_DOWN;break;
++								case(GUN_TILT_DOWN):
++								default: gunTiltState = GUN_TILT_GO_UP;break;
++							}
+ 						}
+ 						shootDelay = type.shootDelay;
+ 						barrelRecoil[j] = type.recoil;
+@@ -397,11 +493,10 @@ public class EntityAAGun extends Entity implements IEntityAdditionalSpawnData
+ 						Vec3d origin = rotate(type.barrelX[currentBarrel] / 16D - type.barrelZ[currentBarrel] / 16D,
+ 								type.barrelY[currentBarrel] / 16D,
+ 								type.barrelX[currentBarrel] / 16D + type.barrelZ[currentBarrel] / 16D).add(posX, posY, posZ);
+-						
+ 						Double radianYaw = Math.toRadians(gunYaw + 90F);
+ 						Double radianPitch = Math.toRadians(gunPitch);
+-						Vector3f shootingDirection = new Vector3f(-Math.sin(radianYaw), Math.cos(radianYaw)*-Math.sin(radianPitch), Math.cos(radianYaw)*Math.cos(radianPitch));
+ 						
++						Vector3f shootingDirection = new Vector3f(-Math.sin(radianYaw) * Math.cos(radianPitch), -Math.sin(radianPitch), Math.cos(radianYaw)*Math.cos(radianPitch));
+ 						FireableGun weapon = new FireableGun(type, (float)type.damage, (float)type.accuracy, (float)type.damage, EnumSpreadPattern.circle);
+ 						FiredShot shot = new FiredShot(weapon, bullet, this, player);
+ 						//TODO use Vec3d
+@@ -423,39 +518,52 @@ public class EntityAAGun extends Entity implements IEntityAdditionalSpawnData
+ 	{
+ 		return type.targetMobs || type.targetPlayers;
+ 	}
+-	
++
+ 	public Entity getValidTarget()
+ 	{
+ 		if(world.isRemote)
+ 			return null;
+ 		if(placer == null && placerName != null)
+ 			placer = world.getPlayerEntityByName(placerName);
+-		for(Object obj : world.getEntitiesWithinAABBExcludingEntity(this, getEntityBoundingBox().expand(type.targetRange, type.targetRange, type.targetRange)))
++		for(Object obj : world.getEntitiesWithinAABBExcludingEntity(this, getEntityBoundingBox().grow(type.targetRange, type.targetRange, type.targetRange)))
+ 		{
+ 			Entity candidateEntity = (Entity)obj;
+ 			
+-			if((type.targetMobs && candidateEntity instanceof EntityMob) || (type.targetPlayers && candidateEntity instanceof EntityPlayer))
++			if((sentryMode & AAGUN_TARGET_MOBS_AGGRESSIVE)!=0 && 
++			(candidateEntity instanceof EntityMob ||
++			(candidateEntity instanceof EntityLiving && 
++		        ((EntityLiving)candidateEntity).getAttackTarget() instanceof EntityPlayer && ((EntityLiving)candidateEntity).getAttackTarget() == placer)))
+ 			{
+ 				//Check that this entity is actually in range and visible
+-				if(candidateEntity.getDistanceSq(this) < type.targetRange * type.targetRange)
+-				{
+-					if(candidateEntity instanceof EntityPlayer)
+-					{
+-						if(candidateEntity == placer || candidateEntity.getName().equals(placerName))
+-							continue;
+-						if(TeamsManager.enabled && TeamsManager.getInstance().currentRound != null && placer != null)
+-						{
+-							PlayerData placerData = PlayerHandler.getPlayerData(placer, world.isRemote ? Side.CLIENT : Side.SERVER);
+-							PlayerData candidateData = PlayerHandler.getPlayerData((EntityPlayer)candidateEntity, world.isRemote ? Side.CLIENT : Side.SERVER);
+-							if(candidateData.team == Team.spectators || candidateData.team == null)
+-								continue;
+-							if(!TeamsManager.getInstance().currentRound.gametype.playerCanAttack((EntityPlayerMP)placer, placerData.team, (EntityPlayerMP)candidateEntity, candidateData.team))
+-								continue;
+-						}
+-					}
++				if(candidateEntity.getDistanceSq(this) < type.targetRange * type.targetRange &&
++				((EntityLivingBase)candidateEntity).canEntityBeSeen(this))
+ 					return candidateEntity;
++			}
++
++			else if((sentryMode & AAGUN_TARGET_PLAYERS)!=0 && candidateEntity instanceof EntityPlayer)
++			{
++				if(candidateEntity == placer || candidateEntity.getName().equals(placerName))
++					continue;
++				if(TeamsManager.enabled && TeamsManager.getInstance().currentRound != null && placer != null)
++				{
++					PlayerData placerData = PlayerHandler.getPlayerData(placer, world.isRemote ? Side.CLIENT : Side.SERVER);
++					PlayerData candidateData = PlayerHandler.getPlayerData((EntityPlayer)candidateEntity, world.isRemote ? Side.CLIENT : Side.SERVER);
++					if(candidateData.team == Team.spectators || candidateData.team == null)
++						continue;
++					if(!TeamsManager.getInstance().currentRound.gametype.playerCanAttack((EntityPlayerMP)placer, placerData.team, (EntityPlayerMP)candidateEntity, candidateData.team))
++						continue;
+ 				}
++				if(candidateEntity.getDistanceSq(this) < type.targetRange * type.targetRange &&
++				((EntityLivingBase)candidateEntity).canEntityBeSeen(this))
++					return candidateEntity;
+ 			}
++			/*else if(sentryMode & AAGUN_TARGET_MOBS_FRIENDLY)
++			{
++				if(candidateEntity instanceof EntityLivingBase && 
++					!(candidateEntity instanceof IMob) &&
++					(candidateEntity.getDistanceSq(this) < type.targetRange * type.targetRange))
++					return candidateEntity;
++			}*/
+ 		}
+ 		return null;
+ 	}
+@@ -509,14 +617,21 @@ public class EntityAAGun extends Entity implements IEntityAdditionalSpawnData
+ 		
+ 		passenger.setPosition(posX + x2, posY + y, posZ + z2);
+ 	}
++	// Sentry is immune to potion effects
++	@Override
++	public void addPotionEffect(PotionEffect potioneffectIn)
++	{
++	}
+ 	
+ 	@Override
+-	protected void writeEntityToNBT(NBTTagCompound nbttagcompound)
++	public void writeEntityToNBT(NBTTagCompound nbttagcompound)
+ 	{
+ 		nbttagcompound.setString("Type", type.shortName);
+ 		nbttagcompound.setInteger("Health", health);
+ 		nbttagcompound.setFloat("RotationYaw", rotationYaw);
+ 		nbttagcompound.setFloat("RotationPitch", rotationPitch);
++		nbttagcompound.setInteger("SentryMode", sentryMode);
++		if(isSentry())nbttagcompound.setInteger("TiltState", gunTiltState);
+ 		for(int i = 0; i < type.numBarrels; i++)
+ 		{
+ 			if(ammo[i] != null)
+@@ -530,13 +645,15 @@ public class EntityAAGun extends Entity implements IEntityAdditionalSpawnData
+ 	}
+ 	
+ 	@Override
+-	protected void readEntityFromNBT(NBTTagCompound nbttagcompound)
++	public void readEntityFromNBT(NBTTagCompound nbttagcompound)
+ 	{
+ 		type = AAGunType.getAAGun(nbttagcompound.getString("Type"));
+ 		initType();
+ 		health = nbttagcompound.getInteger("Health");
+ 		rotationYaw = nbttagcompound.getFloat("RotationYaw");
+ 		rotationPitch = nbttagcompound.getFloat("RotationPitch");
++		if(nbttagcompound.hasKey("SentryMode"))sentryMode = nbttagcompound.getInteger("SentryMode");
++		if(nbttagcompound.hasKey("TiltState"))gunTiltState = nbttagcompound.getInteger("TiltState");
+ 		for(int i = 0; i < type.numBarrels; i++)
+ 		{
+ 			ammo[i] = new ItemStack(nbttagcompound.getCompoundTag("Ammo " + i));
+@@ -545,7 +662,7 @@ public class EntityAAGun extends Entity implements IEntityAdditionalSpawnData
+ 	}
+ 	
+ 	@Override
+-	public boolean processInitialInteract(EntityPlayer entityplayer, EnumHand hand) //interact : change back when Forge updates
++	protected boolean processInteract(EntityPlayer entityplayer, EnumHand hand) //interact : change back when Forge updates
+ 	{
+ 		// Player right clicked on gun
+ 		// Mount gun
+@@ -562,6 +679,7 @@ public class EntityAAGun extends Entity implements IEntityAdditionalSpawnData
+ 			}
+ 			if(!isSentry())
+ 				entityplayer.startRiding(this);
++                        else if(entityplayer.getHeldItem(hand) != null && entityplayer.getHeldItem(hand).isEmpty())changeSentryMode(entityplayer);
+ 			for(int i = 0; i < (type.shareAmmo ? 1 : type.numBarrels); i++)
+ 			{
+ 				if(ammo[i] == null  || ammo[i].isEmpty())
+diff --git a/src/main/java/com/flansmod/common/guns/EntityDamageSourceFlan.java b/src/main/java/com/flansmod/common/guns/EntityDamageSourceFlan.java
+index f15782d7..fb8a8e79 100644
+--- a/src/main/java/com/flansmod/common/guns/EntityDamageSourceFlan.java
++++ b/src/main/java/com/flansmod/common/guns/EntityDamageSourceFlan.java
+@@ -91,4 +91,15 @@ public class EntityDamageSourceFlan extends EntityDamageSourceIndirect{
+ 			return new Vec3d(0d, 0d, 0d);
+         return super.getDamageLocation();
+     }
++
++    @Override
++    @Nullable
++    public Entity getTrueSource() // So that mobs will try to destroy sentry first if it's automatic
++    {
++        if(damageSourceEntity instanceof EntityAAGun)
++        {
++            if(((EntityAAGun)damageSourceEntity).isSentry())return damageSourceEntity;
++        }
++        return super.getTrueSource();
++    }
+ }
+diff --git a/src/main/java/com/flansmod/common/guns/FiredShot.java b/src/main/java/com/flansmod/common/guns/FiredShot.java
+index e432eb19..b85a6c70 100644
+--- a/src/main/java/com/flansmod/common/guns/FiredShot.java
++++ b/src/main/java/com/flansmod/common/guns/FiredShot.java
+@@ -112,8 +112,9 @@ public class FiredShot {
+ 	 */
+ 	public DamageSource getDamageSource(Boolean headshot)
+ 	{
+-		if (player.isPresent()) {
+-			return new EntityDamageSourceFlan(weapon.getShortName(), player.get(), player.get(), weapon.getInfoType(), headshot).setProjectile();
++		if (player.isPresent()) { // Make mobs target automatic sentry if present
++                        Entity trueSource = shooter.isPresent() && shooter.get() instanceof EntityAAGun && ((EntityAAGun)shooter.get()).isSentry() ? shooter.get() : player.get();
++			return new EntityDamageSourceFlan(weapon.getShortName(), trueSource, player.get(), weapon.getInfoType(), headshot).setProjectile();
+ 		}
+ 		else if(shooter.isPresent())
+ 		{
 diff --git a/src/main/java/com/flansmod/common/guns/boxes/BlockGunBox.java b/src/main/java/com/flansmod/common/guns/boxes/BlockGunBox.java
 index 641ed55a..c21e7d23 100644
 --- a/src/main/java/com/flansmod/common/guns/boxes/BlockGunBox.java
@@ -292,18 +724,3 @@ index d482b984..77932f8b 100644
  	}
  	
  	private static void AddModEntry(String name, String resLoc, Ingredient fallback)
-diff --git a/src/main/resources/mcmod.info b/src/main/resources/mcmod.info
-index fb7807b9..ec815710 100644
---- a/src/main/resources/mcmod.info
-+++ b/src/main/resources/mcmod.info
-@@ -2,8 +2,8 @@
-   "modListVersion": 2,
-   "modList": [
-     {
--      "modid": "flansmod",
--      "name": "Flan's Mod",
-+      "modid": "kl.flansmod",
-+      "name": "Flan's Mod Still Alive",
-       "description": "Guns, planes and other vehicles in Minecraft.",
-       "version": "${version}",
-       "mcversion": "${mcversion}",
