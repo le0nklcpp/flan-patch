@@ -142,7 +142,7 @@ index bb376778..82ec7256 100644
 diff --git a/src/main/java/com/flansmod/common/guns/EntityAAGun.java b/src/main/java/com/flansmod/common/guns/EntityAAGun.java
 old mode 100644
 new mode 100755
-index 030bc16e..4a036d98
+index 030bc16e..af4e4011
 --- a/src/main/java/com/flansmod/common/guns/EntityAAGun.java
 +++ b/src/main/java/com/flansmod/common/guns/EntityAAGun.java
 @@ -8,14 +8,19 @@ import net.minecraft.entity.MoverType;
@@ -195,7 +195,7 @@ index 030bc16e..4a036d98
  	//Sentry stuff
  	/**
  	 * Stops the sentry shooting whoever placed it or their teammates
-@@ -81,12 +91,30 @@ public class EntityAAGun extends Entity implements IEntityAdditionalSpawnData
+@@ -81,12 +91,32 @@ public class EntityAAGun extends Entity implements IEntityAdditionalSpawnData
  	/**
  	 * How often to check for new targets
  	 */
@@ -224,13 +224,16 @@ index 030bc16e..4a036d98
 +
 +	public int sentryMode;
 +
++        public int lastProvokedTime;
++
  	public EntityAAGun(World world)
  	{
  		super(world);
-@@ -96,6 +124,10 @@ public class EntityAAGun extends Entity implements IEntityAdditionalSpawnData
+@@ -96,6 +126,11 @@ public class EntityAAGun extends Entity implements IEntityAdditionalSpawnData
  		gunYaw = 0;
  		gunPitch = 0;
  		shootDelay = 0;
++                lastProvokedTime = 0;
 +		sentryMode = AAGUN_MODE_MOBS_BAD;
 +		gunTiltState = GUN_TILT_GO_UP;
 +		enablePersistence();
@@ -238,7 +241,7 @@ index 030bc16e..4a036d98
  	}
  	
  	public EntityAAGun(World world, AAGunType type1, double d, double d1, double d2, EntityPlayer p)
-@@ -107,7 +139,15 @@ public class EntityAAGun extends Entity implements IEntityAdditionalSpawnData
+@@ -107,7 +142,15 @@ public class EntityAAGun extends Entity implements IEntityAdditionalSpawnData
  		initType();
  		setPosition(d, d1, d2);
  	}
@@ -255,7 +258,7 @@ index 030bc16e..4a036d98
  	@Override
  	public void setPosition(double d, double d1, double d2)
  	{
-@@ -144,6 +184,7 @@ public class EntityAAGun extends Entity implements IEntityAdditionalSpawnData
+@@ -144,6 +187,7 @@ public class EntityAAGun extends Entity implements IEntityAdditionalSpawnData
  	@Override
  	protected void entityInit()
  	{
@@ -263,7 +266,7 @@ index 030bc16e..4a036d98
  	}
  	
  	@Override
-@@ -177,10 +218,46 @@ public class EntityAAGun extends Entity implements IEntityAdditionalSpawnData
+@@ -177,10 +221,46 @@ public class EntityAAGun extends Entity implements IEntityAdditionalSpawnData
  		return 0D;
  	}
  	
@@ -310,7 +313,7 @@ index 030bc16e..4a036d98
  	
  	@Override
  	public boolean attackEntityFrom(DamageSource damagesource, float i)
-@@ -268,16 +345,28 @@ public class EntityAAGun extends Entity implements IEntityAdditionalSpawnData
+@@ -268,16 +348,28 @@ public class EntityAAGun extends Entity implements IEntityAdditionalSpawnData
  			if(target != null && target.isDead)
  				target = null;
  			//Find a new target if we don't currently have one
@@ -342,7 +345,7 @@ index 030bc16e..4a036d98
  				double distanceToTarget = Math.sqrt(dX * dX + dY * dY + dZ * dZ);
  				
  				if(distanceToTarget > type.targetRange)
-@@ -286,7 +375,7 @@ public class EntityAAGun extends Entity implements IEntityAdditionalSpawnData
+@@ -286,7 +378,7 @@ public class EntityAAGun extends Entity implements IEntityAdditionalSpawnData
  				{
  					float newYaw = 180F + (float)Math.atan2(dZ, dX) * 180F / 3.14159F;
  					float newPitch = -(float)Math.atan2(dY, Math.sqrt(dX * dX + dZ * dZ)) * 180F / 3.14159F;
@@ -351,7 +354,7 @@ index 030bc16e..4a036d98
  					float turnSpeed = 0.25F;
  					
  					gunYaw += (newYaw - gunYaw) * turnSpeed;
-@@ -373,7 +462,6 @@ public class EntityAAGun extends Entity implements IEntityAdditionalSpawnData
+@@ -373,7 +465,6 @@ public class EntityAAGun extends Entity implements IEntityAdditionalSpawnData
  			if (target != null || shootPlayer)
  			{
  				EntityPlayerMP player = shootPlayer ? (EntityPlayerMP)getControllingPassenger() : null;
@@ -359,7 +362,7 @@ index 030bc16e..4a036d98
  				for(int j = 0; j < type.numBarrels; j++)
  				{
  					int ammoSlot = j;
-@@ -390,6 +478,14 @@ public class EntityAAGun extends Entity implements IEntityAdditionalSpawnData
+@@ -390,6 +481,14 @@ public class EntityAAGun extends Entity implements IEntityAdditionalSpawnData
  						} else
  						{
  							ammo[ammoSlot].setItemDamage(ammo[ammoSlot].getItemDamage() + 1);
@@ -374,7 +377,7 @@ index 030bc16e..4a036d98
  						}
  						shootDelay = type.shootDelay;
  						barrelRecoil[j] = type.recoil;
-@@ -397,11 +493,10 @@ public class EntityAAGun extends Entity implements IEntityAdditionalSpawnData
+@@ -397,11 +496,10 @@ public class EntityAAGun extends Entity implements IEntityAdditionalSpawnData
  						Vec3d origin = rotate(type.barrelX[currentBarrel] / 16D - type.barrelZ[currentBarrel] / 16D,
  								type.barrelY[currentBarrel] / 16D,
  								type.barrelX[currentBarrel] / 16D + type.barrelZ[currentBarrel] / 16D).add(posX, posY, posZ);
@@ -387,7 +390,7 @@ index 030bc16e..4a036d98
  						FireableGun weapon = new FireableGun(type, (float)type.damage, (float)type.accuracy, (float)type.damage, EnumSpreadPattern.circle);
  						FiredShot shot = new FiredShot(weapon, bullet, this, player);
  						//TODO use Vec3d
-@@ -423,39 +518,52 @@ public class EntityAAGun extends Entity implements IEntityAdditionalSpawnData
+@@ -423,39 +521,52 @@ public class EntityAAGun extends Entity implements IEntityAdditionalSpawnData
  	{
  		return type.targetMobs || type.targetPlayers;
  	}
@@ -459,7 +462,7 @@ index 030bc16e..4a036d98
  		}
  		return null;
  	}
-@@ -509,14 +617,21 @@ public class EntityAAGun extends Entity implements IEntityAdditionalSpawnData
+@@ -509,14 +620,21 @@ public class EntityAAGun extends Entity implements IEntityAdditionalSpawnData
  		
  		passenger.setPosition(posX + x2, posY + y, posZ + z2);
  	}
@@ -482,7 +485,7 @@ index 030bc16e..4a036d98
  		for(int i = 0; i < type.numBarrels; i++)
  		{
  			if(ammo[i] != null)
-@@ -530,13 +645,15 @@ public class EntityAAGun extends Entity implements IEntityAdditionalSpawnData
+@@ -530,13 +648,15 @@ public class EntityAAGun extends Entity implements IEntityAdditionalSpawnData
  	}
  	
  	@Override
@@ -499,7 +502,7 @@ index 030bc16e..4a036d98
  		for(int i = 0; i < type.numBarrels; i++)
  		{
  			ammo[i] = new ItemStack(nbttagcompound.getCompoundTag("Ammo " + i));
-@@ -545,7 +662,7 @@ public class EntityAAGun extends Entity implements IEntityAdditionalSpawnData
+@@ -545,7 +665,7 @@ public class EntityAAGun extends Entity implements IEntityAdditionalSpawnData
  	}
  	
  	@Override
@@ -508,7 +511,7 @@ index 030bc16e..4a036d98
  	{
  		// Player right clicked on gun
  		// Mount gun
-@@ -562,6 +679,7 @@ public class EntityAAGun extends Entity implements IEntityAdditionalSpawnData
+@@ -562,6 +682,7 @@ public class EntityAAGun extends Entity implements IEntityAdditionalSpawnData
  			}
  			if(!isSentry())
  				entityplayer.startRiding(this);
@@ -516,26 +519,6 @@ index 030bc16e..4a036d98
  			for(int i = 0; i < (type.shareAmmo ? 1 : type.numBarrels); i++)
  			{
  				if(ammo[i] == null  || ammo[i].isEmpty())
-diff --git a/src/main/java/com/flansmod/common/guns/EntityDamageSourceFlan.java b/src/main/java/com/flansmod/common/guns/EntityDamageSourceFlan.java
-index f15782d7..fb8a8e79 100644
---- a/src/main/java/com/flansmod/common/guns/EntityDamageSourceFlan.java
-+++ b/src/main/java/com/flansmod/common/guns/EntityDamageSourceFlan.java
-@@ -91,4 +91,15 @@ public class EntityDamageSourceFlan extends EntityDamageSourceIndirect{
- 			return new Vec3d(0d, 0d, 0d);
-         return super.getDamageLocation();
-     }
-+
-+    @Override
-+    @Nullable
-+    public Entity getTrueSource() // So that mobs will try to destroy sentry first if it's automatic
-+    {
-+        if(damageSourceEntity instanceof EntityAAGun)
-+        {
-+            if(((EntityAAGun)damageSourceEntity).isSentry())return damageSourceEntity;
-+        }
-+        return super.getTrueSource();
-+    }
- }
 diff --git a/src/main/java/com/flansmod/common/guns/FiredShot.java b/src/main/java/com/flansmod/common/guns/FiredShot.java
 index e432eb19..b85a6c70 100644
 --- a/src/main/java/com/flansmod/common/guns/FiredShot.java
@@ -552,6 +535,51 @@ index e432eb19..b85a6c70 100644
  		}
  		else if(shooter.isPresent())
  		{
+diff --git a/src/main/java/com/flansmod/common/guns/ShotHandler.java b/src/main/java/com/flansmod/common/guns/ShotHandler.java
+index bc61f315..8d9e73a6 100644
+--- a/src/main/java/com/flansmod/common/guns/ShotHandler.java
++++ b/src/main/java/com/flansmod/common/guns/ShotHandler.java
+@@ -31,6 +31,7 @@ import net.minecraft.block.state.IBlockState;
+ import net.minecraft.entity.Entity;
+ import net.minecraft.entity.EntityLivingBase;
+ import net.minecraft.entity.item.EntityItem;
++import net.minecraft.entity.monster.EntityMob;
+ import net.minecraft.entity.player.EntityPlayer;
+ import net.minecraft.entity.player.EntityPlayerMP;
+ import net.minecraft.init.Blocks;
+@@ -38,6 +39,7 @@ import net.minecraft.item.ItemStack;
+ import net.minecraft.potion.PotionEffect;
+ import net.minecraft.util.EnumFacing;
+ import net.minecraft.util.math.BlockPos;
++import net.minecraft.util.DamageSource;
+ import net.minecraft.util.math.RayTraceResult;
+ import net.minecraft.world.World;
+ import net.minecraft.world.WorldServer;
+@@ -219,6 +221,24 @@ public class ShotHandler
+ 					}
+ 					//If the attack was allowed, we should remove their immortality cooldown so we can shoot them again. Without this, any rapid fire gun become useless
+ 					living.hurtResistantTime = 0;
++					// Retaliation against sentry gun
++					if(entityHit.entity instanceof EntityMob)
++					{
++						if(shot.getShooterOptional().isPresent() && shot.getShooterOptional().get() instanceof EntityAAGun)
++						{
++							EntityAAGun sentry = (EntityAAGun)shot.getShooterOptional().get();
++							if(sentry.isSentry() && (sentry.ticksExisted - sentry.lastProvokedTime) > 10)
++							{
++								sentry.lastProvokedTime = sentry.ticksExisted;
++								for(Object obj : world.getEntitiesWithinAABB(entityHit.entity.getClass(), entityHit.entity.getEntityBoundingBox().grow(10F, 10F, 10F)))
++								{
++								//if(obj.getClass() != entityHit.entity.getClass())continue;
++									((EntityMob)obj).setAttackTarget(sentry);
++								}
++							}
++							((EntityMob)entityHit.entity).setAttackTarget(sentry);
++						}
++					}
+ 				}
+ 				if(bulletType.setEntitiesOnFire)
+ 					entityHit.entity.setFire(20);
 diff --git a/src/main/java/com/flansmod/common/guns/boxes/BlockGunBox.java b/src/main/java/com/flansmod/common/guns/boxes/BlockGunBox.java
 index 641ed55a..c21e7d23 100644
 --- a/src/main/java/com/flansmod/common/guns/boxes/BlockGunBox.java
