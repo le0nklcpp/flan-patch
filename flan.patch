@@ -142,7 +142,7 @@ index bb376778..82ec7256 100644
 diff --git a/src/main/java/com/flansmod/common/guns/EntityAAGun.java b/src/main/java/com/flansmod/common/guns/EntityAAGun.java
 old mode 100644
 new mode 100755
-index 030bc16e..af4e4011
+index 030bc16e..c8f398e8
 --- a/src/main/java/com/flansmod/common/guns/EntityAAGun.java
 +++ b/src/main/java/com/flansmod/common/guns/EntityAAGun.java
 @@ -8,14 +8,19 @@ import net.minecraft.entity.MoverType;
@@ -186,16 +186,18 @@ index 030bc16e..af4e4011
  	/**
  	 * Prev gun angles
  	 */
-@@ -64,7 +74,7 @@ public class EntityAAGun extends Entity implements IEntityAdditionalSpawnData
+@@ -64,7 +74,9 @@ public class EntityAAGun extends Entity implements IEntityAdditionalSpawnData
  	public int currentBarrel; // For cycling through firing each barrel
  	public boolean mouseHeld;
  	public boolean wasShooting;
 -	
 +
++        public boolean dropOccured;
++
  	//Sentry stuff
  	/**
  	 * Stops the sentry shooting whoever placed it or their teammates
-@@ -81,12 +91,32 @@ public class EntityAAGun extends Entity implements IEntityAdditionalSpawnData
+@@ -81,12 +93,32 @@ public class EntityAAGun extends Entity implements IEntityAdditionalSpawnData
  	/**
  	 * How often to check for new targets
  	 */
@@ -229,11 +231,12 @@ index 030bc16e..af4e4011
  	public EntityAAGun(World world)
  	{
  		super(world);
-@@ -96,6 +126,11 @@ public class EntityAAGun extends Entity implements IEntityAdditionalSpawnData
+@@ -96,6 +128,12 @@ public class EntityAAGun extends Entity implements IEntityAdditionalSpawnData
  		gunYaw = 0;
  		gunPitch = 0;
  		shootDelay = 0;
 +                lastProvokedTime = 0;
++                dropOccured = false;
 +		sentryMode = AAGUN_MODE_MOBS_BAD;
 +		gunTiltState = GUN_TILT_GO_UP;
 +		enablePersistence();
@@ -241,7 +244,7 @@ index 030bc16e..af4e4011
  	}
  	
  	public EntityAAGun(World world, AAGunType type1, double d, double d1, double d2, EntityPlayer p)
-@@ -107,7 +142,15 @@ public class EntityAAGun extends Entity implements IEntityAdditionalSpawnData
+@@ -107,7 +145,15 @@ public class EntityAAGun extends Entity implements IEntityAdditionalSpawnData
  		initType();
  		setPosition(d, d1, d2);
  	}
@@ -258,7 +261,7 @@ index 030bc16e..af4e4011
  	@Override
  	public void setPosition(double d, double d1, double d2)
  	{
-@@ -144,6 +187,7 @@ public class EntityAAGun extends Entity implements IEntityAdditionalSpawnData
+@@ -144,6 +190,7 @@ public class EntityAAGun extends Entity implements IEntityAdditionalSpawnData
  	@Override
  	protected void entityInit()
  	{
@@ -266,7 +269,7 @@ index 030bc16e..af4e4011
  	}
  	
  	@Override
-@@ -177,10 +221,46 @@ public class EntityAAGun extends Entity implements IEntityAdditionalSpawnData
+@@ -177,10 +224,46 @@ public class EntityAAGun extends Entity implements IEntityAdditionalSpawnData
  		return 0D;
  	}
  	
@@ -313,7 +316,7 @@ index 030bc16e..af4e4011
  	
  	@Override
  	public boolean attackEntityFrom(DamageSource damagesource, float i)
-@@ -268,16 +348,28 @@ public class EntityAAGun extends Entity implements IEntityAdditionalSpawnData
+@@ -268,16 +351,28 @@ public class EntityAAGun extends Entity implements IEntityAdditionalSpawnData
  			if(target != null && target.isDead)
  				target = null;
  			//Find a new target if we don't currently have one
@@ -345,7 +348,7 @@ index 030bc16e..af4e4011
  				double distanceToTarget = Math.sqrt(dX * dX + dY * dY + dZ * dZ);
  				
  				if(distanceToTarget > type.targetRange)
-@@ -286,7 +378,7 @@ public class EntityAAGun extends Entity implements IEntityAdditionalSpawnData
+@@ -286,7 +381,7 @@ public class EntityAAGun extends Entity implements IEntityAdditionalSpawnData
  				{
  					float newYaw = 180F + (float)Math.atan2(dZ, dX) * 180F / 3.14159F;
  					float newPitch = -(float)Math.atan2(dY, Math.sqrt(dX * dX + dZ * dZ)) * 180F / 3.14159F;
@@ -354,7 +357,7 @@ index 030bc16e..af4e4011
  					float turnSpeed = 0.25F;
  					
  					gunYaw += (newYaw - gunYaw) * turnSpeed;
-@@ -373,7 +465,6 @@ public class EntityAAGun extends Entity implements IEntityAdditionalSpawnData
+@@ -373,7 +468,6 @@ public class EntityAAGun extends Entity implements IEntityAdditionalSpawnData
  			if (target != null || shootPlayer)
  			{
  				EntityPlayerMP player = shootPlayer ? (EntityPlayerMP)getControllingPassenger() : null;
@@ -362,7 +365,7 @@ index 030bc16e..af4e4011
  				for(int j = 0; j < type.numBarrels; j++)
  				{
  					int ammoSlot = j;
-@@ -390,6 +481,14 @@ public class EntityAAGun extends Entity implements IEntityAdditionalSpawnData
+@@ -390,6 +484,14 @@ public class EntityAAGun extends Entity implements IEntityAdditionalSpawnData
  						} else
  						{
  							ammo[ammoSlot].setItemDamage(ammo[ammoSlot].getItemDamage() + 1);
@@ -377,7 +380,7 @@ index 030bc16e..af4e4011
  						}
  						shootDelay = type.shootDelay;
  						barrelRecoil[j] = type.recoil;
-@@ -397,11 +496,10 @@ public class EntityAAGun extends Entity implements IEntityAdditionalSpawnData
+@@ -397,11 +499,10 @@ public class EntityAAGun extends Entity implements IEntityAdditionalSpawnData
  						Vec3d origin = rotate(type.barrelX[currentBarrel] / 16D - type.barrelZ[currentBarrel] / 16D,
  								type.barrelY[currentBarrel] / 16D,
  								type.barrelX[currentBarrel] / 16D + type.barrelZ[currentBarrel] / 16D).add(posX, posY, posZ);
@@ -390,7 +393,7 @@ index 030bc16e..af4e4011
  						FireableGun weapon = new FireableGun(type, (float)type.damage, (float)type.accuracy, (float)type.damage, EnumSpreadPattern.circle);
  						FiredShot shot = new FiredShot(weapon, bullet, this, player);
  						//TODO use Vec3d
-@@ -423,39 +521,52 @@ public class EntityAAGun extends Entity implements IEntityAdditionalSpawnData
+@@ -423,39 +524,52 @@ public class EntityAAGun extends Entity implements IEntityAdditionalSpawnData
  	{
  		return type.targetMobs || type.targetPlayers;
  	}
@@ -462,7 +465,29 @@ index 030bc16e..af4e4011
  		}
  		return null;
  	}
-@@ -509,14 +620,21 @@ public class EntityAAGun extends Entity implements IEntityAdditionalSpawnData
+@@ -483,12 +597,16 @@ public class EntityAAGun extends Entity implements IEntityAdditionalSpawnData
+ 		// Drop gun
+ 		if(world.isRemote)
+ 			return;
+-		dropItem(type.getItem(), 1);
+-		// Drop ammo boxes
+-		for(ItemStack stack : ammo)
++		if(!dropOccured)
+ 		{
+-			if(stack != null && !stack.isEmpty())
+-				entityDropItem(stack, 0.5F);
++			dropOccured = true;
++			dropItem(type.getItem(), 1);
++			// Drop ammo boxes
++			for(ItemStack stack : ammo)
++			{
++				if(stack != null && !stack.isEmpty())
++					entityDropItem(stack, 0.5F);
++			}
+ 		}
+ 	}
+ 	
+@@ -509,14 +627,21 @@ public class EntityAAGun extends Entity implements IEntityAdditionalSpawnData
  		
  		passenger.setPosition(posX + x2, posY + y, posZ + z2);
  	}
@@ -485,7 +510,7 @@ index 030bc16e..af4e4011
  		for(int i = 0; i < type.numBarrels; i++)
  		{
  			if(ammo[i] != null)
-@@ -530,13 +648,15 @@ public class EntityAAGun extends Entity implements IEntityAdditionalSpawnData
+@@ -530,13 +655,15 @@ public class EntityAAGun extends Entity implements IEntityAdditionalSpawnData
  	}
  	
  	@Override
@@ -502,7 +527,7 @@ index 030bc16e..af4e4011
  		for(int i = 0; i < type.numBarrels; i++)
  		{
  			ammo[i] = new ItemStack(nbttagcompound.getCompoundTag("Ammo " + i));
-@@ -545,7 +665,7 @@ public class EntityAAGun extends Entity implements IEntityAdditionalSpawnData
+@@ -545,7 +672,7 @@ public class EntityAAGun extends Entity implements IEntityAdditionalSpawnData
  	}
  	
  	@Override
@@ -511,7 +536,7 @@ index 030bc16e..af4e4011
  	{
  		// Player right clicked on gun
  		// Mount gun
-@@ -562,6 +682,7 @@ public class EntityAAGun extends Entity implements IEntityAdditionalSpawnData
+@@ -562,6 +689,7 @@ public class EntityAAGun extends Entity implements IEntityAdditionalSpawnData
  			}
  			if(!isSentry())
  				entityplayer.startRiding(this);
